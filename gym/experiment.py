@@ -34,7 +34,7 @@ class Args(ParamsProto):
     max_iters = 10
     num_steps_per_iter = 10000
     device = 'cpu'
-    small = True
+    # small = True
     log_to_wandb = Flag(help="set this flag to make it true")
 
 
@@ -87,12 +87,12 @@ def experiment(exp_prefix, deps=None):
     state_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
 
-    small = Args.small
     dataset_path = f'{env_name}-{dataset}-v2.pkl'
-    if small and env_name == 'reacher2d':
-        dataset_path = f'smallest1t-{dataset_path}'
-    elif small:
-        dataset_path = f'smallest-{dataset_path}'
+    # These are likely debug options that should be removed
+    # if Args.small and env_name == 'reacher2d':
+    #     dataset_path = f'smallest1t-{dataset_path}'
+    # elif Args.small:
+    #     dataset_path = f'smallest-{dataset_path}'
     dataset_path = f'data/{dataset_path}'
 
     with open(dataset_path, 'rb') as f:
@@ -122,7 +122,7 @@ def experiment(exp_prefix, deps=None):
     print(f'Max return: {np.max(returns):.2f}, min: {np.min(returns):.2f}')
     print('=' * 50)
 
-    K = deps['K']
+    K = Args.K
     batch_size = Args.batch_size
     num_eval_episodes = Args.num_eval_episodes
     pct_traj = Args.pct_traj
@@ -295,7 +295,7 @@ def experiment(exp_prefix, deps=None):
             name=exp_prefix,
             group=group_name,
             project='decision-transformer',
-            config=deps
+            config=vars(Args)
         )
         # wandb.watch(model)  # wandb has some bug
 
