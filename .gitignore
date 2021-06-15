@@ -1,3 +1,7 @@
 .idea
+
+.secrete
+private
+
 **/data/*.pkl
 __pycache__

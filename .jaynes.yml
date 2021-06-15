@@ -1,0 +1,131 @@
+version: 0
+mounts:
+- &mjkey
+  s3_prefix: "s3://{env.JYNS_AWS_S3_BUCKET}/model-free"
+  local_path: "$HOME/.mujoco/mjkey.txt"
+  container_path: /root/.mujoco/mjkey.txt
+  compress: true
+- &model-free_code
+  s3_prefix: "s3://{env.JYNS_AWS_S3_BUCKET}/model-free"
+  local_path: .
+  pypath: true
+  excludes: >-
+    --exclude='*__pycache__' --exclude='*.git' --exclude='*.idea' --exclude='*.egg-info' --exclude='*.pkl'
+    --exclude='screenshots' --exclude='scripts' --exclude='docker'
+    --exclude='private' --exclude='.secrete'
+  compress: true
+runner: &docker-runner
+  name: "model-free"  # only for docker
+  image: "improbableailab/model-free:latest"
+  # post_script: sleep 1800
+  envs: LANG=utf-8
+  pypath: "{mounts[1].container_path}"
+  work_dir: "{mounts[1].container_path}"
+  ipc: host
+  gpus: all
+modes:
+  supercloud: &supercloud
+    mounts:
+      - !mounts.SSHCode
+        local_path: .
+        local_tar: /tmp/{now:%Y-%m-%d}/{now:%H%M%S.%f}-model-free.tar
+        host_path: "{env.JYNS_SLURM_DIR}/{now:%Y-%m-%d}/{now:%H%M%S.%f}/model-free"
+        remote_tar: "{env.JYNS_SLURM_DIR}/{now:%Y-%m-%d}/{now:%H%M%S.%f}/model-free.tar"
+        pypath: true
+        excludes: >-
+          --exclude='data' --exclude='samples' --exclude='images' --exclude='videos'
+          --exclude='figures' --exclude='results' --exclude='analysis' --exclude='*.ipynb'
+          --exclude='*__pycache__' --exclude='*.git' --exclude='*.png' --exclude='*.gif'
+          --exclude='*.mp4' --exclude='*.idea' --exclude='*.egg-info' --exclude='*.pkl'
+          --exclude='*.log*' --exclude='custom_vendor' --exclude='*.csv'
+          --exclude='checkpoints' --exclude='log'
+        compress: true
+    runner: !runners.Slurm
+      name: model-free
+      envs: >-
+        LC_CTYPE=en_US.UTF-8 LANG=en_US.UTF-8 LANGUAGE=en_US
+        http_proxy=http://login-4:5080
+        https_proxy=http://login-4:5080
+        LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/.mujoco/mujoco200/bin
+        LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/.mujoco/mujoco200_linux/bin
+      # needed for mujoco-py
+      # export CUDA_VISIBLE_DEVICES=0;
+      ## mkdir -p /state/partition1/user/$USER/conda;
+      ## echo "copying mujoco-py"
+      # cp -r /home/gridsan/$USER/mujoco-py /state/partition1/user/$USER/conda;
+      # echo "finished"
+      startup: >-
+        source /etc/profile.d/modules.sh;
+        source ~/.bashrc;
+        module load cuda/10.2;
+        module load anaconda/2021a;
+        export MUJOCO_GL=egl;
+        export LD_PRELOAD=$HOME/vendor/glew/lib/libGLEW.so.2.2.0:/usr/lib/libGL.so.1;
+      pypath: "{mounts[0].host_path}"
+      work_dir: "{mounts[0].host_path}"
+      #      exclude: d-7-11-2,d-10-1-2
+      # time_limit: "0:0:20"
+      mem: 10000
+      n_cpu: 8
+      n_gpu: volta:1
+    launch: !ENV
+      type: ssh
+      ip: "{env.JYNS_SLURM_HOST}"
+      username: "{env.JYNS_USERNAME}"
+      pem: "{env.JYNS_SLURM_PEM}"
+  visiongpu-docker:
+    mounts:
+    - !mounts.S3Code
+      <<: *mjkey
+      host_path: "$NFS_PATH/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}/mjkey.txt"
+    - !mounts.S3Code
+      <<: *model-free_code
+      host_path: "$NFS_PATH/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}/model-free"
+      remote_tar: "$NFS_PATH/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}/"
+    runner:
+      !runners.Docker
+      <<: *docker-runner
+      setup: |
+        docker login --username improbableailab --password 6596fb63-286c-40be-9d9c-9004f6f4074e
+        chmod -R 777 $NFS_PATH/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}/model-free
+    launch: !ENV
+      # use AWS_PROFILE to select the access key and access .secrete.
+      # post a feature request under issues, if you want more ways to customize this.
+      type: ssh
+      # pypath:
+      ip: improbable008.csail.mit.edu
+      username: "{env.JYNS_USERNAME}"
+      password: "{env.JYNS_PASSWORD}"
+      root_config: "source $HOME/public/.bashrc"
+      launch_dir: "$NFS_PATH/jaynes-demo/{now:%Y-%m-%d}/{now:%H%M%S.%f}"
+  ec2: &ec2-launch
+    verbose: true
+    mounts:
+    - !mounts.S3Code
+      <<: *mjkey
+      host_path: "/home/ec2-user/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}/mjkey.txt"
+    - !mounts.S3Code
+      <<: *model-free_code
+      host_path: "/home/ec2-user/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}/model-free"
+      remote_tar: "/home/ec2-user/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}/"
+    runner: !runners.Docker
+      <<: *docker-runner
+      setup: |
+        docker login --username improbableailab --password 6596fb63-286c-40be-9d9c-9004f6f4074e
+        chmod -R 777 /home/ec2-user/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}/model-free
+    launch: !ENV
+      # use AWS_PROFILE to select the access key and access .secrete.
+      # post a feature request under issues, if you want more ways to customize this.
+      type: ec2
+      availability_zone: us-west-2a
+      region: us-west-2
+      image_id: ami-0cf77af10d63c7969
+      iam_instance_profile_arn: "{env.JYNS_AWS_INSTANCE_PROFILE}"
+      security_group: "{env.USER}-jaynes-sg"
+      instance_type: g4dn.xlarge
+      key_name: "{env.USER}-us-west-2"
+      spot_price: 0.6
+      terminate_after: true
+      launch_dir: "/home/ec2-user/jaynes-mounts/{now:%Y-%m-%d}/{now:%H%M%S.%f}"
+run:
+  *supercloud

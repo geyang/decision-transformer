@@ -60,8 +60,8 @@ def experiment(exp_prefix, deps=None):
     if env_name == 'hopper':
         env = gym.make('Hopper-v3')
         max_ep_len = 1000
-        env_targets = [3600, 1800]
-        scale = 1000.
+        env_targets = [3600, 1800]  # evaluation conditioning targets
+        scale = 1000.  # normalization for rewards/returns
     elif env_name == 'halfcheetah':
         env = gym.make('HalfCheetah-v3')
         max_ep_len = 1000
@@ -87,21 +87,16 @@ def experiment(exp_prefix, deps=None):
     state_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
 
-    dataset_path = f'{env_name}-{dataset}-v2.pkl'
-    # These are likely debug options that should be removed
-    # if Args.small and env_name == 'reacher2d':
-    #     dataset_path = f'smallest1t-{dataset_path}'
-    # elif Args.small:
-    #     dataset_path = f'smallest-{dataset_path}'
-    dataset_path = f'data/{dataset_path}'
-
+    # load dataset
+    dataset_path = f'data/{env_name}-{dataset}-v2.pkl'
     with open(dataset_path, 'rb') as f:
         trajectories = pickle.load(f)
 
+    # save all path information into separate lists
     mode = Args.mode
     states, traj_lens, returns = [], [], []
     for path in trajectories:
-        if mode == 'delayed':
+        if mode == 'delayed':  # delayed: all rewards moved to end of trajectory
             path['rewards'][-1] = path['rewards'].sum()
             path['rewards'][:-1] = 0.
         states.append(path['observations'])
@@ -130,7 +125,6 @@ def experiment(exp_prefix, deps=None):
     # only train on top pct_traj trajectories (for %BC experiment)
     num_timesteps = max(int(pct_traj * num_timesteps), 1)
     sorted_inds = np.argsort(returns)  # lowest to highest
-
     num_trajectories = 1
     timesteps = traj_lens[sorted_inds[-1]]
     ind = len(trajectories) - 2
@@ -139,6 +133,8 @@ def experiment(exp_prefix, deps=None):
         num_trajectories += 1
         ind -= 1
     sorted_inds = sorted_inds[-num_trajectories:]
+
+    # used to reweight sampling so we sample according to timesteps instead of trajectories
     p_sample = traj_lens[sorted_inds] / sum(traj_lens[sorted_inds])
 
     def get_batch(batch_size=256, max_len=K):
@@ -154,6 +150,7 @@ def experiment(exp_prefix, deps=None):
             traj = trajectories[int(sorted_inds[batch_inds[i]])]
             si = random.randint(0, traj['rewards'].shape[0] - 1)
 
+            # get sequences from dataset
             s.append(traj['observations'][si:si + max_len].reshape(1, -1, state_dim))
             a.append(traj['actions'][si:si + max_len].reshape(1, -1, act_dim))
             r.append(traj['rewards'][si:si + max_len].reshape(1, -1, 1))
@@ -167,13 +164,14 @@ def experiment(exp_prefix, deps=None):
             if rtg[-1].shape[1] <= s[-1].shape[1]:
                 rtg[-1] = np.concatenate([rtg[-1], np.zeros((1, 1, 1))], axis=1)
 
+            # padding and state + reward normalization
             tlen = s[-1].shape[1]
             s[-1] = np.concatenate([np.zeros((1, max_len - tlen, state_dim)), s[-1]], axis=1)
             s[-1] = (s[-1] - state_mean) / state_std
             a[-1] = np.concatenate([np.ones((1, max_len - tlen, act_dim)) * -10., a[-1]], axis=1)
             r[-1] = np.concatenate([np.zeros((1, max_len - tlen, 1)), r[-1]], axis=1)
             d[-1] = np.concatenate([np.ones((1, max_len - tlen)) * 2, d[-1]], axis=1)
-            rtg[-1] = np.concatenate([np.zeros((1, max_len - tlen, 1)), rtg[-1]], axis=1)
+            rtg[-1] = np.concatenate([np.zeros((1, max_len - tlen, 1)), rtg[-1]], axis=1) / scale
             timesteps[-1] = np.concatenate([np.zeros((1, max_len - tlen)), timesteps[-1]], axis=1)
             mask.append(np.concatenate([np.zeros((1, max_len - tlen)), np.ones((1, tlen))], axis=1))
 
@@ -181,7 +179,7 @@ def experiment(exp_prefix, deps=None):
         a = torch.from_numpy(np.concatenate(a, axis=0)).to(dtype=torch.float32, device=device)
         r = torch.from_numpy(np.concatenate(r, axis=0)).to(dtype=torch.float32, device=device)
         d = torch.from_numpy(np.concatenate(d, axis=0)).to(dtype=torch.long, device=device)
-        rtg = torch.from_numpy(np.concatenate(rtg, axis=0)).to(dtype=torch.float32, device=device) / scale
+        rtg = torch.from_numpy(np.concatenate(rtg, axis=0)).to(dtype=torch.float32, device=device)
         timesteps = torch.from_numpy(np.concatenate(timesteps, axis=0)).to(dtype=torch.long, device=device)
         mask = torch.from_numpy(np.concatenate(mask, axis=0)).to(device=device)
 
@@ -299,7 +297,6 @@ def experiment(exp_prefix, deps=None):
         )
         # wandb.watch(model)  # wandb has some bug
 
-    max_return = -1e6
     for iter in range(Args.max_iters):
         outputs = trainer.train_iteration(num_steps=Args.num_steps_per_iter, iter_num=iter + 1, print_logs=True)
         if log_to_wandb:
