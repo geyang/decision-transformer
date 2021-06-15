@@ -25,10 +25,10 @@ python download_d4rl_datasets.py
 
 ## Example usage
 
-Experiments can be reproduced with the following:
+Experiments can be reproduced with the following: (this uses the default values)
 
-```
+```bash
 python experiment.py --env hopper --dataset medium --model_type dt
 ```
 
-Adding `-w True` will log results to Weights and Biases.
+Adding `--use-wandb True` will log results to Weights and Biases.
