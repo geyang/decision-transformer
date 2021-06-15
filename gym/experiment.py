@@ -34,6 +34,7 @@ class Args(ParamsProto):
     max_iters = 10
     num_steps_per_iter = 10000
     device = 'cpu'
+    small = True
     log_to_wandb = Flag(help="set this flag to make it true")
 
 
