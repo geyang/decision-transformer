@@ -9,9 +9,9 @@ import d4rl
 
 datasets = []
 
-for env in ['halfcheetah', 'hopper', 'walker2d']:
+for domain in ['halfcheetah', 'hopper', 'walker2d']:
 	for dataset_type in ['medium', 'medium-replay', 'expert']:
-		name = f'{env}-{dataset_type}-v2'
+		name = f'{domain}-{dataset_type}-v2'
 		env = gym.make(name)
 		dataset = env.get_dataset()
 

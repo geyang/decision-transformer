@@ -14,7 +14,9 @@ conda env create -f conda_env.yml
 ## Downloading datasets
 
 Datasets are stored in the `data` directory.
-Install the [D4RL repo](https://github.com/rail-berkeley/d4rl), following the instructions there.
+
+#### Install the [D4RL repo](https://github.com/rail-berkeley/d4rl), following the instructions there.
+
 Then, run the following script in order to download the datasets and save them in our format:
 
 ```
